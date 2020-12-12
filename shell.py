@@ -1,14 +1,11 @@
 import ufpl
 
-program = []
-while text := input(">>"):
-    if text == "STOP":
-        break;
-    program.append(text)
+f = open("code.ufpl", "r")
+script = f.read()
 
-
-for i in program:
-    result, error = ufpl.run('<stdin>',i)
-
-    if error: print(error.as_string())
-    else: print(result)
+tokens, error = ufpl.run("<code>", script)
+if error:
+    print(error.as_string())
+else:
+    for i in tokens:
+        print(i.value)
