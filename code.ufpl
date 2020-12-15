@@ -1,4 +1,5 @@
+* hello world
 VAR a = 1 + 2
-VAR a = a + 1 + 1 * 2 + 2 + (5 * 5)
-VAR B = 12
-a + B
+START
+1 + 2
+END

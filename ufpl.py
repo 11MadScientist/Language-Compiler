@@ -125,9 +125,11 @@ TT_EOS = 'EOS'
 
 KEYWORDS = [
     'VAR',
-    'AND',  #
-    'OR',  #
-    'NOT'  #
+    'AND',
+    'OR',
+    'NOT',
+    'START',
+    'END'
 ]
 
 
@@ -176,7 +178,7 @@ class Lexer:
             if self.current_char in ' \t':
                 self.advance()
             elif self.current_char == '\n':
-                tokens.append(Token(TT_EOS, pos_start = self.pos))
+                tokens.append(Token(TT_EOS, pos_start=self.pos))
                 statements.append(tokens)
                 tokens = []
                 while self.current_char == '\n':
@@ -192,8 +194,11 @@ class Lexer:
                 tokens.append(Token(TT_MINUS, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '*':
-                tokens.append(Token(TT_MUL, pos_start=self.pos))
-                self.advance()
+                if self.pos.col == 0:
+                    self.skip_comment()
+                else:
+                    tokens.append(Token(TT_MUL, pos_start=self.pos))
+                    self.advance()
             elif self.current_char == '/':
                 tokens.append(Token(TT_DIV, pos_start=self.pos))
                 self.advance()
@@ -247,7 +252,7 @@ class Lexer:
         id_str = ''
         pos_start = self.pos.copy()
 
-        while self.current_char != None and self.current_char in LETTERS_DIGITS + '_':
+        while self.current_char is not None and self.current_char in LETTERS_DIGITS + '_':
             id_str += self.current_char
             self.advance()
 
@@ -297,6 +302,12 @@ class Lexer:
             tok_type = TT_GTE
 
         return Token(tok_type, pos_start=pos_start, pos_end=self.pos)
+
+    def skip_comment(self):
+        self.advance()
+        while self.current_char != '\n':
+            self.advance()
+        self.advance()
 
 
 #######################################
@@ -401,7 +412,20 @@ class Parser:
         return self.current_tok
 
     def parse(self):
+        res = ParseResult()
+        if self.current_tok.matches(TT_KEYWORD, 'START') or self.current_tok.matches(TT_KEYWORD, 'END'):
+            current = self.current_tok.value
+            self.advance()
+            if self.current_tok.type != TT_EOS and self.current_tok.type != TT_EOF:
+                print(self.current_tok.type)
+                return res.failure(InvalidSyntaxError(
+                    self.current_tok.pos_start, self.current_tok.pos_end,
+                    "does not support 2 or more statements in one line"
+                ))
+            return current
+
         res = self.expr()
+
         if not res.error and (self.current_tok.type != TT_EOF and self.current_tok.type != TT_EOS):
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
@@ -491,6 +515,11 @@ class Parser:
 
     def expr(self):
         res = ParseResult()
+        if self.tok_idx == 0 and self.current_tok.matches(TT_KEYWORD, 'VAR') and isstart == True:
+            return res.failure(InvalidSyntaxError(
+                self.current_tok.pos_start, self.current_tok.pos_end,
+                "You can only declare variable before the keyword 'START'"
+            ))
 
         if self.current_tok.matches(TT_KEYWORD, 'VAR'):
             res.register_advancement()
@@ -708,6 +737,7 @@ class Interpreter:
 
     def no_visit_method(self, node, context):
         raise Exception(f'No visit_{type(node).__name__} method defined')
+        raise Exception(f'No visit_{type(node).__name__} method defined')
 
     ###################################
 
@@ -808,6 +838,8 @@ global_symbol_table.set("TRUE", Number(1))
 
 
 def run(fn, text):
+    global isstart
+    isstart = False
     # Generate tokens
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
@@ -820,7 +852,13 @@ def run(fn, text):
         if not i: continue
         parser = Parser(i)
         ast = parser.parse()
+        if ast == 'START':
+            isstart = True
+            continue
+        elif ast == 'END':
+            break
         if ast.error: return None, ast.error
+
         nodes.append(ast.node)
     # return nodes, None
 
