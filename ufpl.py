@@ -48,6 +48,11 @@ class InvalidSyntaxError(Error):
         super().__init__(pos_start, pos_end, 'Invalid Syntax', details)
 
 
+class InvalidInstantiationError(Error):
+    def __init__(self, pos_start, pos_end, details=''):
+        super().__init__(pos_start, pos_end, 'Invalid Instantiation', details)
+
+
 class RTError(Error):
     def __init__(self, pos_start, pos_end, details, context):
         super().__init__(pos_start, pos_end, 'Runtime Error', details)
@@ -104,8 +109,12 @@ class Position:
 
 TT_INT = 'INT'
 TT_FLOAT = 'FLOAT'
+TT_CHAR = 'CHAR'
+TT_BOOL = 'BOOL'
+TT_STRING = 'STRING'
 TT_IDENTIFIER = 'IDENTIFIER'
 TT_KEYWORD = 'KEYWORD'
+TT_CONCAT = 'CONCAT'
 TT_PLUS = 'PLUS'
 TT_MINUS = 'MINUS'
 TT_MUL = 'MUL'
@@ -129,7 +138,11 @@ KEYWORDS = [
     'OR',
     'NOT',
     'START',
-    'END'
+    'END',
+    'AS',
+    'INT',
+    'BOOL',
+    'CHAR'
 ]
 
 
@@ -187,6 +200,11 @@ class Lexer:
                 tokens.append(self.make_number())
             elif self.current_char in LETTERS:
                 tokens.append(self.make_identifier())
+            elif self.current_char == '"':
+                tokens.append(self.make_string())
+            elif self.current_char == '&':
+                tokens.append(Token(TT_PLUS, pos_start=self.pos))
+                self.advance()
             elif self.current_char == '+':
                 tokens.append(Token(TT_PLUS, pos_start=self.pos))
                 self.advance()
@@ -247,6 +265,35 @@ class Lexer:
             return Token(TT_INT, int(num_str), pos_start, self.pos)
         else:
             return Token(TT_FLOAT, float(num_str), pos_start, self.pos)
+
+    def make_string(self):
+        string = ''
+        pos_start = self.pos.copy()
+        escape_character = False
+        self.advance()
+
+        while self.current_char is not None and self.current_char != '"':
+            string += self.current_char
+            self.advance()
+
+        self.advance()
+        return Token(TT_STRING, string, pos_start, self.pos)
+
+    def make_character(self):
+        char = ''
+        pos_start = self.pos.copy()
+        escape_character = False
+        self.advance()
+        isChar = False
+
+        while self.current_char is not None and self.current_char != "'":
+            if isChar == False:
+                char += self.current_char
+                self.advance()
+            else:
+                break
+        self.advance()
+        return Token(TT_CHAR, char, pos_start, self.pos)
 
     def make_identifier(self):
         id_str = ''
@@ -325,6 +372,28 @@ class NumberNode:
         return f'{self.tok}'
 
 
+class StringNode:
+    def __init__(self, tok):
+        self.tok = tok
+
+        self.pos_start = self.tok.pos_start
+        self.pos_end = self.tok.pos_end
+
+    def __repr__(self):
+        return f'{self.tok}'
+
+
+class CharNode:
+    def __init__(self, tok):
+        self.tok = tok
+
+        self.pos_start = self.tok.pos_start
+        self.pos_end = self.tok.pos_end
+
+    def __repr__(self):
+        return f'{self.tok}'
+
+
 class VarAccessNode:
     def __init__(self, var_name_tok):
         self.var_name_tok = var_name_tok
@@ -334,12 +403,13 @@ class VarAccessNode:
 
 
 class VarAssignNode:
-    def __init__(self, var_name_tok, value_node):
+    def __init__(self, var_name_tok, value_node, datatype):
         self.var_name_tok = var_name_tok
         self.value_node = value_node
+        self.data_type = datatype
 
         self.pos_start = self.var_name_tok.pos_start
-        self.pos_end = self.value_node.pos_end
+        self.pos_end = self.data_type.pos_end
 
 
 class BinOpNode:
@@ -427,6 +497,7 @@ class Parser:
         res = self.expr()
 
         if not res.error and (self.current_tok.type != TT_EOF and self.current_tok.type != TT_EOS):
+            print(self.current_tok.type)
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
                 "Expected '+', '-', '*', '/', '^', '==', '!=', '<', '>', <=', '>=', 'AND' or 'OR'"
@@ -443,6 +514,16 @@ class Parser:
             res.register_advancement()
             self.advance()
             return res.success(NumberNode(tok))
+
+        elif tok.type == TT_STRING:
+            res.register_advancement()
+            self.advance()
+            return res.success(StringNode(tok))
+
+        elif tok.type == TT_CHAR:
+            res.register_advancement()
+            self.advance()
+            return res.success(CharNode(tok))
 
         elif tok.type == TT_IDENTIFIER:
             res.register_advancement()
@@ -532,20 +613,60 @@ class Parser:
                 ))
 
             var_name = self.current_tok
+            datatype = ""
             res.register_advancement()
             self.advance()
 
             if self.current_tok.type != TT_EQ:
-                return res.failure(InvalidSyntaxError(
-                    self.current_tok.pos_start, self.current_tok.pos_end,
-                    "Expected '='"
-                ))
+                if self.current_tok.type == TT_KEYWORD:
+                    if self.current_tok.value == 'AS':
+                        res.register_advancement()
+                        self.advance()
+                        if self.current_tok.type == TT_KEYWORD:
+                            data_types = ["INT", "CHAR", "BOOL"]
+                            if self.current_tok.value in data_types:
+                                datatype = self.current_tok
+                                res.register_advancement()
+                                self.advance()
+                                return res.success(VarAssignNode(var_name, None, datatype))
+                        else:
+                            return res.failure(InvalidSyntaxError(
+                                self.current_tok.pos_start, self.current_tok.pos_end,
+                                "Expected KEYWORD 'INT', 'BOOL', OR 'CHAR'"
+                            ))
+                    else:
+                        return res.failure(InvalidSyntaxError(
+                            self.current_tok.pos_start, self.current_tok.pos_end,
+                            "Expected KEYWORD 'AS'"
+                        ))
+                else:
+                    return res.failure(InvalidSyntaxError(
+                        self.current_tok.pos_start, self.current_tok.pos_end,
+                        "Expected KEYWORD"
+                    ))
 
             res.register_advancement()
             self.advance()
             expr = res.register(self.expr())
             if res.error: return res
-            return res.success(VarAssignNode(var_name, expr))
+
+            if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'AS':
+                res.register_advancement()
+                self.advance()
+                data_types = ["INT", "CHAR", "BOOL"]
+                if self.current_tok.value in data_types:
+                    datatype = self.current_tok
+                    res.register_advancement()
+                    self.advance()
+                else:
+                    return res.failure(InvalidSyntaxError(
+                        self.current_tok.pos_start, self.current_tok.pos_end,
+                        "Expected KEYWORD 'INT', 'BOOL', OR 'CHAR'"))
+            else:
+                return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
+                                                      self.current_tok.pos_end,
+                                                      "Expected KEYWORD 'AS'"))
+            return res.success(VarAssignNode(var_name, expr, datatype))
 
         node = res.register(self.bin_op(self.comp_expr, ((TT_KEYWORD, 'AND'), (TT_KEYWORD, 'OR'))))
 
@@ -603,6 +724,80 @@ class RTResult:
 #######################################
 # VALUES
 #######################################
+
+class Value:
+    def __init__(self):
+        self.set_pos()
+        self.set_context()
+
+    def set_pos(self, pos_start=None, pos_end=None):
+        self.pos_start = pos_start
+        self.pos_end = pos_end
+        return self
+
+    def set_context(self, context=None):
+        self.context = context
+        return self
+
+    def added_to(self, other):
+        return None, self.illegal_operation(other)
+
+    def subbed_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def multed_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def dived_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def powed_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_eq(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_ne(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_lt(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_gt(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_lte(self, other):
+        return None, self.illegal_operation(other)
+
+    def get_comparison_gte(self, other):
+        return None, self.illegal_operation(other)
+
+    def anded_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def ored_by(self, other):
+        return None, self.illegal_operation(other)
+
+    def notted(self, other):
+        return None, self.illegal_operation(other)
+
+    def execute(self, args):
+        return RTResult().failure(self.illegal_operation())
+
+    def copy(self):
+        raise Exception('No copy method defined')
+
+    def is_true(self):
+        return False
+
+    def illegal_operation(self, other=None):
+        if not other: other = self
+        return RTError(
+            self.pos_start, other.pos_end,
+            'Illegal operation',
+            self.context
+        )
+
 
 class Number:
     def __init__(self, value):
@@ -691,6 +886,18 @@ class Number:
         return str(self.value)
 
 
+class String(Value):
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+    def added_to(self, other):
+        return String(self.value + str(other.value)).set_context(self.context), None
+
+    def __repr__(self):
+        return f'"{self.value}"'
+
+
 #######################################
 # CONTEXT
 #######################################
@@ -715,11 +922,11 @@ class SymbolTable:
     def get(self, name):
         value = self.symbols.get(name, None)
         if value == None and self.parent:
-            return self.parent.get(name)
-        return value
+            return self.parent.get(name)[0]
+        return value[0]
 
-    def set(self, name, value):
-        self.symbols[name] = value
+    def set(self, name, value, datatype):
+        self.symbols[name] = value, datatype
 
     def remove(self, name):
         del self.symbols[name]
@@ -737,13 +944,18 @@ class Interpreter:
 
     def no_visit_method(self, node, context):
         raise Exception(f'No visit_{type(node).__name__} method defined')
-        raise Exception(f'No visit_{type(node).__name__} method defined')
 
     ###################################
 
     def visit_NumberNode(self, node, context):
         return RTResult().success(
             Number(node.tok.value).set_context(context).set_pos(node.pos_start, node.pos_end)
+        )
+
+    def visit_StringNode(self, node, context):
+        return RTResult().success(
+            String(node.tok.value).set_context(context).set_pos(node.pos_start,
+                                                                node.pos_end)
         )
 
     def visit_VarAccessNode(self, node, context):
@@ -764,10 +976,23 @@ class Interpreter:
     def visit_VarAssignNode(self, node, context):
         res = RTResult()
         var_name = node.var_name_tok.value
+        data_type = node.data_type.value
+
+        if node.value_node == None:
+            context.symbol_table.set(var_name, Number(0), data_type)
+            return res.success(Number(0))
+
         value = res.register(self.visit(node.value_node, context))
         if res.error: return res
 
-        context.symbol_table.set(var_name, value)
+        if data_type == 'INT':
+            if not isinstance(value.value, int):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <int>"
+                ))
+
+        context.symbol_table.set(var_name, value, data_type)
         return res.success(value)
 
     def visit_BinOpNode(self, node, context):
@@ -777,7 +1002,9 @@ class Interpreter:
         right = res.register(self.visit(node.right_node, context))
         if res.error: return res
 
-        if node.op_tok.type == TT_PLUS:
+        if node.op_tok.type == TT_CONCAT:
+            result, error = left.added_to(right)
+        elif node.op_tok.type == TT_PLUS:
             result, error = left.added_to(right)
         elif node.op_tok.type == TT_MINUS:
             result, error = left.subbed_by(right)
@@ -832,9 +1059,9 @@ class Interpreter:
 #######################################
 
 global_symbol_table = SymbolTable()
-global_symbol_table.set("NULL", Number(0))
-global_symbol_table.set("FALSE", Number(0))
-global_symbol_table.set("TRUE", Number(1))
+global_symbol_table.set("NULL", Number(0), 'INT')
+global_symbol_table.set("FALSE", Number(0), 'INT')
+global_symbol_table.set("TRUE", Number(1), 'INT')
 
 
 def run(fn, text):

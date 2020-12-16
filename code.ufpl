@@ -1,5 +1,5 @@
 * hello world
-VAR a = 1 + 2
+VAR a AS INT
 START
-1 + 2
+"This is a string " & a & " Hello"
 END
