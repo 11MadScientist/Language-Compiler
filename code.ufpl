@@ -1,5 +1,8 @@
 * hello world
-VAR a AS INT
+VAR a = 'f' AS CHAR
+VAR b = "FALSE" AS BOOL
+VAR c = 1 AS INT
 START
-"This is a string " & a & " Hello"
+a & b & (c+2)
+
 END

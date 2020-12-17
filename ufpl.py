@@ -200,6 +200,8 @@ class Lexer:
                 tokens.append(self.make_number())
             elif self.current_char in LETTERS:
                 tokens.append(self.make_identifier())
+            elif self.current_char == "'":
+                tokens.append(self.make_character())
             elif self.current_char == '"':
                 tokens.append(self.make_string())
             elif self.current_char == '&':
@@ -269,7 +271,6 @@ class Lexer:
     def make_string(self):
         string = ''
         pos_start = self.pos.copy()
-        escape_character = False
         self.advance()
 
         while self.current_char is not None and self.current_char != '"':
@@ -289,6 +290,7 @@ class Lexer:
         while self.current_char is not None and self.current_char != "'":
             if isChar == False:
                 char += self.current_char
+                isChar = True
                 self.advance()
             else:
                 break
@@ -336,6 +338,9 @@ class Lexer:
         if self.current_char == '=':
             self.advance()
             tok_type = TT_LTE
+        elif self.current_char == '>':
+            self.advance()
+            tok_type = TT_NE
 
         return Token(tok_type, pos_start=pos_start, pos_end=self.pos)
 
@@ -382,8 +387,32 @@ class StringNode:
     def __repr__(self):
         return f'{self.tok}'
 
+class addStringNode:
+    def __init__(self, left_node, op_tok, right_node):
+        self.left_node = left_node
+        self.op_tok = op_tok
+        self.right_node = right_node
+
+        self.pos_start = self.left_node.pos_start
+        self.pos_end = self.right_node.pos_end
+
+    def __repr__(self):
+        return f'({self.left_node}, {self.op_tok}, {self.right_node})'
+
+
 
 class CharNode:
+    def __init__(self, tok):
+        self.tok = tok
+
+        self.pos_start = self.tok.pos_start
+        self.pos_end = self.tok.pos_end
+
+    def __repr__(self):
+        return f'{self.tok}'
+
+
+class BoolNode:
     def __init__(self, tok):
         self.tok = tok
 
@@ -487,7 +516,6 @@ class Parser:
             current = self.current_tok.value
             self.advance()
             if self.current_tok.type != TT_EOS and self.current_tok.type != TT_EOF:
-                print(self.current_tok.type)
                 return res.failure(InvalidSyntaxError(
                     self.current_tok.pos_start, self.current_tok.pos_end,
                     "does not support 2 or more statements in one line"
@@ -497,7 +525,6 @@ class Parser:
         res = self.expr()
 
         if not res.error and (self.current_tok.type != TT_EOF and self.current_tok.type != TT_EOS):
-            print(self.current_tok.type)
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
                 "Expected '+', '-', '*', '/', '^', '==', '!=', '<', '>', <=', '>=', 'AND' or 'OR'"
@@ -524,6 +551,11 @@ class Parser:
             res.register_advancement()
             self.advance()
             return res.success(CharNode(tok))
+
+        elif tok.type == TT_BOOL:
+            res.register_advancement()
+            self.advance()
+            return res.success(BoolNode(tok))
 
         elif tok.type == TT_IDENTIFIER:
             res.register_advancement()
@@ -613,7 +645,6 @@ class Parser:
                 ))
 
             var_name = self.current_tok
-            datatype = ""
             res.register_advancement()
             self.advance()
 
@@ -663,6 +694,10 @@ class Parser:
                         self.current_tok.pos_start, self.current_tok.pos_end,
                         "Expected KEYWORD 'INT', 'BOOL', OR 'CHAR'"))
             else:
+                if self.current_tok.type == 'CHAR':
+                    return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
+                                                          self.current_tok.pos_end,
+                                                          "'' only takes 1 symbol"))
                 return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
                                                       self.current_tok.pos_end,
                                                       "Expected KEYWORD 'AS'"))
@@ -697,6 +732,7 @@ class Parser:
             left = BinOpNode(left, op_tok, right)
 
         return res.success(left)
+
 
 
 #######################################
@@ -815,8 +851,13 @@ class Number:
         return self
 
     def added_to(self, other):
-        if isinstance(other, Number):
-            return Number(self.value + other.value).set_context(self.context), None
+        print("hello")
+        if isinstance(other, Number) and isinstance(self, Number):
+            if isinstance(other.value, int) and isinstance(self.value, int):
+                return Number(self.value + other.value).set_context(self.context), None
+            else:
+                return Number(str(self.value) + str(other.value)).set_context(self.context), None
+
 
     def subbed_by(self, other):
         if isinstance(other, Number):
@@ -891,8 +932,32 @@ class String(Value):
         super().__init__()
         self.value = value
 
+    def concat_to(self, other):
+        return String(self.value + str(other.value)).set_context(self.context), None
+
+    def copy(self):
+        copy = Number(self.value)
+        copy.set_pos(self.pos_start, self.pos_end)
+        copy.set_context(self.context)
+        return copy
+
+    def __repr__(self):
+        return f'"{self.value}"'
+
+
+class Char(Value):
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
     def added_to(self, other):
         return String(self.value + str(other.value)).set_context(self.context), None
+
+    def copy(self):
+        copy = Number(self.value)
+        copy.set_pos(self.pos_start, self.pos_end)
+        copy.set_context(self.context)
+        return copy
 
     def __repr__(self):
         return f'"{self.value}"'
@@ -922,8 +987,8 @@ class SymbolTable:
     def get(self, name):
         value = self.symbols.get(name, None)
         if value == None and self.parent:
-            return self.parent.get(name)[0]
-        return value[0]
+            return self.parent.get(name)
+        return value
 
     def set(self, name, value, datatype):
         self.symbols[name] = value, datatype
@@ -958,10 +1023,16 @@ class Interpreter:
                                                                 node.pos_end)
         )
 
+    def visit_CharNode(self, node, context):
+        return RTResult().success(
+            String(node.tok.value).set_context(context).set_pos(node.pos_start,
+                                                                node.pos_end)
+        )
+
     def visit_VarAccessNode(self, node, context):
         res = RTResult()
         var_name = node.var_name_tok.value
-        value = context.symbol_table.get(var_name)
+        value = context.symbol_table.get(var_name)[0]
 
         if not value:
             return res.failure(RTError(
@@ -992,7 +1063,22 @@ class Interpreter:
                     "Invalid datatype: needs <int>"
                 ))
 
+        elif data_type == 'BOOL':
+            if value.value not in ("TRUE", "FALSE"):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <TRUE or FALSE>"
+                ))
+
+        elif data_type == 'CHAR':
+            if not isinstance(value.value, str) or 1 < len(value.value):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <CHAR>"
+                ))
+
         context.symbol_table.set(var_name, value, data_type)
+
         return res.success(value)
 
     def visit_BinOpNode(self, node, context):
@@ -1003,7 +1089,7 @@ class Interpreter:
         if res.error: return res
 
         if node.op_tok.type == TT_CONCAT:
-            result, error = left.added_to(right)
+            result, error = left.concat_to(right)
         elif node.op_tok.type == TT_PLUS:
             result, error = left.added_to(right)
         elif node.op_tok.type == TT_MINUS:
