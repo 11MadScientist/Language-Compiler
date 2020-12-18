@@ -274,6 +274,18 @@ class Lexer:
         self.advance()
 
         while self.current_char is not None and self.current_char != '"':
+            if self.current_char == '[':
+                self.advance()
+                string += self.current_char
+                self.advance()
+                if self.current_char == ']':
+                    self.advance()
+                    continue
+                else:
+                    break
+            elif self.current_char == '#':
+                string += '\n'
+                self.advance()
             string += self.current_char
             self.advance()
 
@@ -387,6 +399,7 @@ class StringNode:
     def __repr__(self):
         return f'{self.tok}'
 
+
 class addStringNode:
     def __init__(self, left_node, op_tok, right_node):
         self.left_node = left_node
@@ -398,7 +411,6 @@ class addStringNode:
 
     def __repr__(self):
         return f'({self.left_node}, {self.op_tok}, {self.right_node})'
-
 
 
 class CharNode:
@@ -734,7 +746,6 @@ class Parser:
         return res.success(left)
 
 
-
 #######################################
 # RUNTIME RESULT
 #######################################
@@ -851,13 +862,11 @@ class Number:
         return self
 
     def added_to(self, other):
-        print("hello")
         if isinstance(other, Number) and isinstance(self, Number):
             if isinstance(other.value, int) and isinstance(self.value, int):
                 return Number(self.value + other.value).set_context(self.context), None
             else:
                 return Number(str(self.value) + str(other.value)).set_context(self.context), None
-
 
     def subbed_by(self, other):
         if isinstance(other, Number):
@@ -965,6 +974,7 @@ class Char(Value):
     def __repr__(self):
         return f'"{self.value}"'
 
+
 class Bool(Value):
     def __init__(self, value):
         super().__init__()
@@ -981,7 +991,6 @@ class Bool(Value):
 
     def __repr__(self):
         return f'"{self.value}"'
-
 
 
 #######################################

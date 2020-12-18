@@ -3,5 +3,5 @@ VAR a = 'f' AS CHAR
 VAR b = 1 == 2 AS BOOL
 VAR c = 1 AS INT
 START
-b  &  c
+"Hell[[][#]#world"
 END
