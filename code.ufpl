@@ -1,8 +1,7 @@
 * hello world
 VAR a = 'f' AS CHAR
-VAR b = "FALSE" AS BOOL
+VAR b = 1 == 2 AS BOOL
 VAR c = 1 AS INT
 START
-a & b & (c+2)
-
+b  &  c
 END

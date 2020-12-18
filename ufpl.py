@@ -884,7 +884,10 @@ class Number:
 
     def get_comparison_eq(self, other):
         if isinstance(other, Number):
-            return Number(int(self.value == other.value)).set_context(self.context), None
+            if self.value == other.value:
+                return Bool("TRUE").set_context(self.context), None
+            return Bool("FALSE").set_context(self.context), None
+            # Number(int(self.value == other.value)).set_context(self.context), None
 
     def get_comparison_ne(self, other):
         if isinstance(other, Number):
@@ -961,6 +964,24 @@ class Char(Value):
 
     def __repr__(self):
         return f'"{self.value}"'
+
+class Bool(Value):
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+    def added_to(self, other):
+        return String(self.value + str(other.value)).set_context(self.context), None
+
+    def copy(self):
+        copy = Number(self.value)
+        copy.set_pos(self.pos_start, self.pos_end)
+        copy.set_context(self.context)
+        return copy
+
+    def __repr__(self):
+        return f'"{self.value}"'
+
 
 
 #######################################
