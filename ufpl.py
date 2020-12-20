@@ -139,7 +139,7 @@ KEYWORDS = [
     'OR',
     'NOT',
     'START',
-    'END',
+    'STOP',
     'AS',
     'INT',
     'BOOL',
@@ -190,7 +190,7 @@ class Lexer:
         tokens = []
 
         while self.current_char != None:
-            if self.current_char in ' \t':
+            if self.current_char in [' ', '\t']:
                 self.advance()
             elif self.current_char == '\n':
                 tokens.append(Token(TT_EOS, pos_start=self.pos))
@@ -231,7 +231,18 @@ class Lexer:
                 tokens.append(Token(TT_MINUS, pos_start=self.pos))
                 self.advance()
             elif self.current_char == '*':
-                if self.pos.col == 0:
+                cur_col = self.pos.col -1
+                cur_idx = self.pos.idx - 1
+                iscomment = True
+
+                while cur_col >= 0:
+                    if self.text[cur_idx] not in [' ', '\t']:
+                        iscomment = False
+                        break
+                    cur_col -= 1
+                    cur_idx -= 1
+
+                if iscomment == True:
                     self.skip_comment()
                 else:
                     tokens.append(Token(TT_MUL, pos_start=self.pos))
@@ -571,7 +582,7 @@ class Parser:
 
     def parse(self):
         res = ParseResult()
-        if self.current_tok.matches(TT_KEYWORD, 'START') or self.current_tok.matches(TT_KEYWORD, 'END'):
+        if self.current_tok.matches(TT_KEYWORD, 'START') or self.current_tok.matches(TT_KEYWORD, 'STOP'):
             current = self.current_tok.value
             self.advance()
             if self.current_tok.type != TT_EOS and self.current_tok.type != TT_EOF:
@@ -700,12 +711,12 @@ class Parser:
             expr = self.expr()
             return res.success(PrintStatement(func, expr))
 
-        elif self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == False:
+        elif self.current_tok.type == TT_IDENTIFIER and self.tok_idx == 0 and isstart == False:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
                 "Invalid variable position"
             ))
-        elif self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == True:
+        elif self.current_tok.type == TT_IDENTIFIER and self.tok_idx == 0 and isstart == True:
             name = self.current_tok
             res.register_advancement()
             self.advance()
@@ -965,7 +976,7 @@ class Number(Value):
                     self.context
                 )
 
-            return Number(self.value / other.value).set_context(self.context), None
+            return Number(int(self.value / other.value)).set_context(self.context), None
         else:
             return None, Value.illegal_operation(self, other)
 
@@ -1055,6 +1066,9 @@ class String(Value):
         copy.set_pos(self.pos_start, self.pos_end)
         copy.set_context(self.context)
         return copy
+
+    def __str__(self):
+        return f'{self.value}'
 
     def __repr__(self):
         return f'"{self.value}"'
@@ -1205,11 +1219,15 @@ class Interpreter:
                 ))
 
         elif data_type == 'BOOL':
-            if value.value not in ("TRUE", "FALSE"):
+            if value.value not in ("TRUE", "FALSE", 0, 1):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
                     "Invalid datatype: needs <TRUE or FALSE>"
                 ))
+            if int(value.value) == 0:
+                value.value = "FALSE"
+            elif int(value.value) == 1:
+                value.value = "TRUE"
 
         elif data_type == 'CHAR':
             if not isinstance(value.value, str) or 1 < len(value.value):
@@ -1237,11 +1255,17 @@ class Interpreter:
                 ))
 
         elif data_type == 'BOOL':
-            if value.value not in ("TRUE", "FALSE"):
+            print("bool value: " + str(value.value))
+            if value.value not in ("TRUE", "FALSE", 0, 1):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
                     "Invalid datatype: needs <TRUE or FALSE>"
                 ))
+            if int(value.value) == 0:
+                value.value = "FALSE"
+            elif int(value.value) == 1:
+                print("high")
+                value.value = "TRUE"
 
         elif data_type == 'CHAR':
             if not isinstance(value.value, str) or 1 < len(value.value):
@@ -1351,7 +1375,7 @@ def run(fn, text):
             if ast == 'START':
                 isstart = True
                 continue
-            elif ast == 'END':
+            elif ast == 'STOP':
                 break
             if ast.error: return None, ast.error
 
@@ -1361,9 +1385,9 @@ def run(fn, text):
                 if n.error: return None, ast.error
                 nodes.append(n.node)
 
-    for i in nodes:
-        print(i)
-    return nodes, None
+    # for i in nodes:
+    #     print(i)
+    # return nodes, None
 
     # Run program
     interpreter = Interpreter()

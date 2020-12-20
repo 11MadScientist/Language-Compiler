@@ -1,0 +1,9 @@
+VAR xyz, abc = 100 AS INT
+VAR bool = (1 < 0 OR 2 == 2) AS BOOL
+START
+    xyz = ((abc * 5) / 10 + 10) * -1 AS INT
+    *xyz  should have the value of -60
+    OUTPUT: "[[]" & xyz & "[]]"
+STOP
+=========================
+

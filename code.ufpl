@@ -1,8 +1,1 @@
-VAR a,B = "T" AS CHAR
-VAR b AS INT
-VAR bool AS BOOL
-START
-b = 1 + 2
-OUTPUT: "Hello " & a & B & b
-(3 == 3 AND 2 < 1)
-END
+VAR a = 100,b = 200, c=300 AS INT
