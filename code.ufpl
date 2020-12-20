@@ -1,6 +1,6 @@
 VAR a,B = "T" AS CHAR
 VAR b AS INT
 START
-a + B
-B + 1
+a = '4' + B
+
 END

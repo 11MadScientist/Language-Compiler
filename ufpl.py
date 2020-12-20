@@ -142,7 +142,8 @@ KEYWORDS = [
     'AS',
     'INT',
     'BOOL',
-    'CHAR'
+    'CHAR',
+    'OUTPUT:'
 ]
 
 
@@ -466,6 +467,22 @@ class VarAccessNode:
         self.pos_start = self.var_name_tok.pos_start
         self.pos_end = self.var_name_tok.pos_end
 
+class ChangeAssignNode:
+    def __init__(self, var_name_tok, node_value):
+        self.var_name_tok = var_name_tok
+        self.node_value = node_value
+
+        self.pos_start = self.var_name_tok.pos_start
+        self.pos_end = self.var_name_tok.pos_end
+
+class PrintStatement:
+    def __init__(self, var_name_tok, node_value):
+        self.var_name_tok = var_name_tok
+        self.node_value = node_value
+
+        self.pos_start = self.var_name_tok.pos_start
+        self.pos_end = self.var_name_tok.pos_end
+
 
 class VarAssignNode:
     def __init__(self, var_name_tok, value_node, datatype):
@@ -666,11 +683,31 @@ class Parser:
 
     def expr(self):
         res = ParseResult()
-        if self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == False:
+        if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'OUTPUT:':
+            func = self.current_tok
+            res.register_advancement()
+            self.advance()
+            expr = self.expr()
+
+        elif self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == False:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
                 "Invalid variable position"
             ))
+        elif self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == True:
+            name = self.current_tok
+            res.register_advancement()
+            self.advance()
+
+            if self.current_tok.type != TT_EQ:
+                return res.failure(InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end,
+                                                      "Expected '=' "))
+            res.register_advancement()
+            self.advance()
+            expr = res.register(self.expr())
+            if res.error: return res
+            return ParseResult().success(ChangeAssignNode(name, expr))
+
 
 
         if self.tok_idx == 0 and self.current_tok.matches(TT_KEYWORD, 'VAR') and isstart == True:
@@ -1103,7 +1140,7 @@ class Interpreter:
     def visit_VarAccessNode(self, node, context):
         res = RTResult()
         var_name = node.var_name_tok.value
-        value = context.symbol_table.get(var_name)[0]
+        value = context.symbol_table.get(var_name)
 
         if not value:
             return res.failure(RTError(
@@ -1111,7 +1148,7 @@ class Interpreter:
                 f"'{var_name}' is not defined",
                 context
             ))
-
+        value = value[0]
         value = value.copy().set_pos(node.pos_start, node.pos_end)
         return res.success(value)
 
@@ -1134,6 +1171,40 @@ class Interpreter:
                 return res.success(Char(''))
 
         value = res.register(self.visit(node.value_node, context))
+        if res.error: return res
+
+        if data_type == 'INT':
+            if not isinstance(value.value, int):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <int>"
+                ))
+
+        elif data_type == 'BOOL':
+            if value.value not in ("TRUE", "FALSE"):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <TRUE or FALSE>"
+                ))
+
+        elif data_type == 'CHAR':
+            print(value)
+            if not isinstance(value.value, str) or 1 < len(value.value):
+                res.failure(InvalidInstantiationError(
+                    value.pos_start, value.pos_end,
+                    "Invalid datatype: needs <CHAR>"
+                ))
+
+        context.symbol_table.set(var_name, value, data_type)
+        return res.success(value)
+
+    def visit_ChangeAssignNode(self, node, context):
+        res = RTResult()
+        var_name = node.var_name_tok.value
+        value = res.register(self.visit(node.node_value, context))
+        data_type = context.symbol_table.get(var_name)[1]
+        print(data_type)
+
         if res.error: return res
 
         if data_type == 'INT':
