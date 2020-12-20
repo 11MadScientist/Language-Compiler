@@ -200,6 +200,18 @@ class Lexer:
                 tokens.append(self.make_number())
             elif self.current_char in LETTERS:
                 tokens.append(self.make_identifier())
+            elif self.current_char == ',':
+                self.advance()
+                while self.current_char == ' ':
+                    self.advance()
+                currpos = self.pos.copy()
+                chck = self.multi_identifier()
+                if isinstance(chck, Token):
+                    tokens.append(chck)
+                else:
+                    self.advance()
+                    return [], InvalidSyntaxError(currpos, self.pos, "Invalid Identifier Name")
+
             elif self.current_char == "'":
                 tokens.append(self.make_character())
             elif self.current_char == '"':
@@ -319,6 +331,18 @@ class Lexer:
 
         tok_type = TT_KEYWORD if id_str in KEYWORDS else TT_IDENTIFIER
         return Token(tok_type, id_str, pos_start, self.pos)
+
+    def multi_identifier(self):
+        id_str = ''
+        pos_start = self.pos.copy()
+
+        while self.current_char is not None and self.current_char in LETTERS_DIGITS + '_':
+            id_str += self.current_char
+            self.advance()
+
+        if id_str in KEYWORDS:
+            return 0
+        return Token(TT_IDENTIFIER, id_str, pos_start, self.pos)
 
     def make_not_equals(self):
         pos_start = self.pos.copy()
@@ -534,14 +558,16 @@ class Parser:
                 ))
             return current
 
-        res = self.expr()
+        batch = self.expr()
+        if isinstance(batch, list):
+            for res in batch:
+                if not res.error and (self.current_tok.type != TT_EOF and self.current_tok.type != TT_EOS):
+                    return res.failure(InvalidSyntaxError(
+                        self.current_tok.pos_start, self.current_tok.pos_end,
+                        "Expected '+', '-', '*', '/', '^', '==', '!=', '<', '>', <=', '>=', 'AND' or 'OR'"
+                    ))
 
-        if not res.error and (self.current_tok.type != TT_EOF and self.current_tok.type != TT_EOS):
-            return res.failure(InvalidSyntaxError(
-                self.current_tok.pos_start, self.current_tok.pos_end,
-                "Expected '+', '-', '*', '/', '^', '==', '!=', '<', '>', <=', '>=', 'AND' or 'OR'"
-            ))
-        return res
+        return batch
 
     ###################################
 
@@ -640,6 +666,13 @@ class Parser:
 
     def expr(self):
         res = ParseResult()
+        if self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == False:
+            return res.failure(InvalidSyntaxError(
+                self.current_tok.pos_start, self.current_tok.pos_end,
+                "Invalid variable position"
+            ))
+
+
         if self.tok_idx == 0 and self.current_tok.matches(TT_KEYWORD, 'VAR') and isstart == True:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
@@ -656,9 +689,12 @@ class Parser:
                     "Expected identifier"
                 ))
 
-            var_name = self.current_tok
-            res.register_advancement()
-            self.advance()
+            var_name = []
+            batch = list()
+            while self.current_tok.type == TT_IDENTIFIER:
+                var_name.append(self.current_tok)
+                res.register_advancement()
+                self.advance()
 
             if self.current_tok.type != TT_EQ:
                 if self.current_tok.type == TT_KEYWORD:
@@ -671,7 +707,10 @@ class Parser:
                                 datatype = self.current_tok
                                 res.register_advancement()
                                 self.advance()
-                                return res.success(VarAssignNode(var_name, None, datatype))
+                                for i in var_name:
+                                    g = ParseResult().success(VarAssignNode(i, None, datatype))
+                                    batch.append(g)
+                                return batch
                         else:
                             return res.failure(InvalidSyntaxError(
                                 self.current_tok.pos_start, self.current_tok.pos_end,
@@ -713,7 +752,9 @@ class Parser:
                 return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
                                                       self.current_tok.pos_end,
                                                       "Expected KEYWORD 'AS'"))
-            return res.success(VarAssignNode(var_name, expr, datatype))
+            for i in var_name:
+                batch.append(ParseResult().success(VarAssignNode(i, expr, datatype)))
+            return batch
 
         node = res.register(self.bin_op(self.comp_expr, ((TT_KEYWORD, 'AND'), (TT_KEYWORD, 'OR'))))
 
@@ -1078,10 +1119,19 @@ class Interpreter:
         res = RTResult()
         var_name = node.var_name_tok.value
         data_type = node.data_type.value
+        node_dtype = node.value_node
+        print(node_dtype)
 
         if node.value_node == None:
-            context.symbol_table.set(var_name, Number(0), data_type)
-            return res.success(Number(0))
+            if data_type == 'INT':
+                context.symbol_table.set(var_name, Number(0), data_type)
+                return res.success(Number(0))
+            elif data_type == 'BOOL':
+                context.symbol_table.set(var_name, Bool("False"), data_type)
+                return res.success(Bool("False"))
+            elif data_type == 'CHAR':
+                context.symbol_table.set(var_name, Char(''), data_type)
+                return res.success(Char(''))
 
         value = res.register(self.visit(node.value_node, context))
         if res.error: return res
@@ -1101,6 +1151,7 @@ class Interpreter:
                 ))
 
         elif data_type == 'CHAR':
+            print(value)
             if not isinstance(value.value, str) or 1 < len(value.value):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
@@ -1108,7 +1159,6 @@ class Interpreter:
                 ))
 
         context.symbol_table.set(var_name, value, data_type)
-
         return res.success(value)
 
     def visit_BinOpNode(self, node, context):
@@ -1183,6 +1233,7 @@ global_symbol_table.set("TRUE", Number(1), 'INT')
 def run(fn, text):
     global isstart
     isstart = False
+    nodes = ["hello"]
     # Generate tokens
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
@@ -1195,24 +1246,30 @@ def run(fn, text):
         if not i: continue
         parser = Parser(i)
         ast = parser.parse()
-        if ast == 'START':
-            isstart = True
-            continue
-        elif ast == 'END':
-            break
-        if ast.error: return None, ast.error
+        if not isinstance(ast, list):
+            if ast == 'START':
+                isstart = True
+                continue
+            elif ast == 'END':
+                break
+            if ast.error: return None, ast.error
 
-        nodes.append(ast.node)
+            nodes.append(ast.node)
+        else:
+            for n in ast:
+                if n.error: return None, ast.error
+                nodes.append(n.node)
+
     # return nodes, None
 
     # Run program
     interpreter = Interpreter()
     context = Context('<code.ufpl>')
     context.symbol_table = global_symbol_table
+
     results = []
     for i in nodes:
         result = interpreter.visit(i, context)
         if result.error: return None, result.error
         results.append(result)
-
     return results, None

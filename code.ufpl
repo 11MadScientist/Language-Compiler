@@ -1,7 +1,6 @@
-* hello world
-VAR a = 'f' AS CHAR
-VAR b = 1 == 2 AS BOOL
-VAR c = 1 AS INT
+VAR a,B = "T" AS CHAR
+VAR b AS INT
 START
-"Hell[[][#]#world"
+a + B
+B + 1
 END
