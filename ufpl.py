@@ -219,7 +219,7 @@ class Lexer:
 
             elif self.current_char == "'":
                 tokens.append(self.make_character())
-            elif self.current_char == '"':
+            elif self.current_char in '" [':
                 tokens.append(self.make_string())
             elif self.current_char == '&':
                 tokens.append(Token(TT_PLUS, pos_start=self.pos))
@@ -314,8 +314,9 @@ class Lexer:
             elif self.current_char == '#':
                 string += '\n'
                 self.advance()
-            string += self.current_char
-            self.advance()
+            else:
+                string += self.current_char
+                self.advance()
 
         self.advance()
         return Token(TT_STRING, string, pos_start, self.pos)
@@ -724,18 +725,29 @@ class Parser:
             ))
 
         elif self.current_tok.type == TT_IDENTIFIER and self.tok_idx == 0 and isstart == True:
-            name = self.current_tok
-            res.register_advancement()
-            self.advance()
+            name = []
+            value = None
+            change_batch = []
+            while self.current_tok.type == TT_IDENTIFIER:
+                name.append(self.current_tok)
+                res.register_advancement()
+                self.advance()
 
-            if self.current_tok.type != TT_EQ:
-                return res.failure(InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end,
-                                                      "Expected '=' "))
-            res.register_advancement()
-            self.advance()
-            expr = res.register(self.expr())
-            if res.error: return res
-            return ParseResult().success(ChangeAssignNode(name, expr))
+                if self.current_tok.type != TT_EQ:
+                    return res.failure(InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end,
+                                                          "Expected '=' "))
+
+                res.register_advancement()
+                self.advance()
+                if self.current_tok.type == TT_IDENTIFIER:
+                    continue
+
+                expr = res.register(self.expr())
+                value = expr
+                if res.error: return res
+            for i in name:
+                change_batch.append(ParseResult().success(ChangeAssignNode(i, value)))
+            return change_batch
 
         if self.tok_idx == 0 and self.current_tok.matches(TT_KEYWORD, 'VAR') and isstart == True:
             return res.failure(InvalidSyntaxError(
@@ -768,10 +780,7 @@ class Parser:
                     continue
                 res.register_advancement()
                 self.advance()
-                if self.current_tok.type not in [TT_INT, TT_CHAR, TT_STRING]:
-                    return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
-                                                          self.current_tok.pos_end,
-                                                          "Expected value of INT, CHAR, BOOLEAN"))
+
                 expr = res.register(self.expr())
                 if res.error:
                     return res
@@ -943,7 +952,7 @@ class Number(Value):
         if isinstance(other, Number):
             return Number(self.value + other.value).set_context(self.context), None
         else:
-            return None, Value.illegal_operation(self, other)
+            return String(str(self.value) + str(other.value)).set_context(self.context), None
 
     def subbed_by(self, other):
         if isinstance(other, Number):
@@ -1185,7 +1194,6 @@ class Interpreter:
         res = RTResult()
         var_name = node.var_name_tok.value
         data_type = node.data_type.value
-        node_dtype = node.value_node
 
         if node.value_node == None:
             if data_type == 'INT':
@@ -1234,9 +1242,15 @@ class Interpreter:
         res = RTResult()
         var_name = node.var_name_tok.value
         value = res.register(self.visit(node.node_value, context))
-        data_type = context.symbol_table.get(var_name)[1]
 
-        if res.error: return res
+        data_type = context.symbol_table.get(var_name)
+        if not data_type:
+            return res.failure(RTError(
+                node.pos_start, node.pos_end,
+                f"'{var_name}' is not defined",
+                context
+            ))
+        data_type = data_type[0]
 
         if data_type == 'INT':
             if not isinstance(value.value, int):

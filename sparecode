@@ -7,3 +7,20 @@ START
 STOP
 =========================
 
+VAR a = 100,b = 200, c=300 AS INT
+VAR d = "FALSE" AS BOOL
+START
+    d = (a < b AND c <> 200)
+    OUTPUT: d
+STOP
+
+========================
+VAR abc, b, c AS INT
+VAR X, W_23='w' AS CHAR
+VAR t="TRUE" AS BOOL
+START
+    Abc = b= 10
+    w_23 = 'a'
+    *this is a comment
+    OUTPUT: abc & "hi"& b & "#" & w_23 & "[#]"
+STOP
