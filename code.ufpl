@@ -1,6 +1,8 @@
 VAR a,B = "T" AS CHAR
 VAR b AS INT
+VAR bool AS BOOL
 START
-a = '4' + B
-
+b = 1 + 2
+OUTPUT: "Hello " & a & B & b
+(3 == 3 AND 2 < 1)
 END

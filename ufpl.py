@@ -131,6 +131,7 @@ TT_LTE = 'LTE'  #
 TT_GTE = 'GTE'  #
 TT_EOF = 'EOF'
 TT_EOS = 'EOS'
+TT_COL = 'COL'
 
 KEYWORDS = [
     'VAR',
@@ -143,7 +144,7 @@ KEYWORDS = [
     'INT',
     'BOOL',
     'CHAR',
-    'OUTPUT:'
+    'OUTPUT'
 ]
 
 
@@ -199,6 +200,9 @@ class Lexer:
                     self.advance()
             elif self.current_char in DIGITS:
                 tokens.append(self.make_number())
+            elif self.current_char == ':':
+                tokens.append(Token(TT_COL, pos_start=self.pos))
+                self.advance()
             elif self.current_char in LETTERS:
                 tokens.append(self.make_identifier())
             elif self.current_char == ',':
@@ -467,6 +471,7 @@ class VarAccessNode:
         self.pos_start = self.var_name_tok.pos_start
         self.pos_end = self.var_name_tok.pos_end
 
+
 class ChangeAssignNode:
     def __init__(self, var_name_tok, node_value):
         self.var_name_tok = var_name_tok
@@ -475,13 +480,14 @@ class ChangeAssignNode:
         self.pos_start = self.var_name_tok.pos_start
         self.pos_end = self.var_name_tok.pos_end
 
-class PrintStatement:
-    def __init__(self, var_name_tok, node_value):
-        self.var_name_tok = var_name_tok
-        self.node_value = node_value
 
-        self.pos_start = self.var_name_tok.pos_start
-        self.pos_end = self.var_name_tok.pos_end
+class PrintStatement:
+    def __init__(self,func, expr):
+        self.func = func
+        self.expr = expr
+
+        self.pos_start = self.func.pos_start
+        self.pos_end = self.func.pos_end
 
 
 class VarAssignNode:
@@ -683,11 +689,16 @@ class Parser:
 
     def expr(self):
         res = ParseResult()
-        if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'OUTPUT:':
+        if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'OUTPUT':
             func = self.current_tok
             res.register_advancement()
             self.advance()
+            if self.current_tok.type != TT_COL:
+                return res.failure(InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end, "Expected ':'"))
+            res.register_advancement()
+            self.advance()
             expr = self.expr()
+            return res.success(PrintStatement(func, expr))
 
         elif self.current_tok.type == TT_IDENTIFIER and self.current_tok.pos_start.col == 0 and isstart == False:
             return res.failure(InvalidSyntaxError(
@@ -707,8 +718,6 @@ class Parser:
             expr = res.register(self.expr())
             if res.error: return res
             return ParseResult().success(ChangeAssignNode(name, expr))
-
-
 
         if self.tok_idx == 0 and self.current_tok.matches(TT_KEYWORD, 'VAR') and isstart == True:
             return res.failure(InvalidSyntaxError(
@@ -924,35 +933,28 @@ class Value:
         )
 
 
-class Number:
+class Number(Value):
     def __init__(self, value):
+        super().__init__()
         self.value = value
-        self.set_pos()
-        self.set_context()
-
-    def set_pos(self, pos_start=None, pos_end=None):
-        self.pos_start = pos_start
-        self.pos_end = pos_end
-        return self
-
-    def set_context(self, context=None):
-        self.context = context
-        return self
 
     def added_to(self, other):
-        if isinstance(other, Number) and isinstance(self, Number):
-            if isinstance(other.value, int) and isinstance(self.value, int):
-                return Number(self.value + other.value).set_context(self.context), None
-            else:
-                return Number(str(self.value) + str(other.value)).set_context(self.context), None
+        if isinstance(other, Number):
+            return Number(self.value + other.value).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def subbed_by(self, other):
         if isinstance(other, Number):
             return Number(self.value - other.value).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def multed_by(self, other):
         if isinstance(other, Number):
             return Number(self.value * other.value).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def dived_by(self, other):
         if isinstance(other, Number):
@@ -964,45 +966,62 @@ class Number:
                 )
 
             return Number(self.value / other.value).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def powed_by(self, other):
         if isinstance(other, Number):
             return Number(self.value ** other.value).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_eq(self, other):
         if isinstance(other, Number):
-            if self.value == other.value:
-                return Bool("TRUE").set_context(self.context), None
-            return Bool("FALSE").set_context(self.context), None
-            # Number(int(self.value == other.value)).set_context(self.context), None
+            return Number(int(self.value == other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_ne(self, other):
         if isinstance(other, Number):
             return Number(int(self.value != other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_lt(self, other):
         if isinstance(other, Number):
             return Number(int(self.value < other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_gt(self, other):
         if isinstance(other, Number):
             return Number(int(self.value > other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_lte(self, other):
         if isinstance(other, Number):
             return Number(int(self.value <= other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def get_comparison_gte(self, other):
         if isinstance(other, Number):
             return Number(int(self.value >= other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def anded_by(self, other):
         if isinstance(other, Number):
             return Number(int(self.value and other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def ored_by(self, other):
         if isinstance(other, Number):
             return Number(int(self.value or other.value)).set_context(self.context), None
+        else:
+            return None, Value.illegal_operation(self, other)
 
     def notted(self):
         return Number(1 if self.value == 0 else 0).set_context(self.context), None
@@ -1013,6 +1032,12 @@ class Number:
         copy.set_context(self.context)
         return copy
 
+    def is_true(self):
+        return self.value != 0
+
+    def __str__(self):
+        return str(self.value)
+
     def __repr__(self):
         return str(self.value)
 
@@ -1022,8 +1047,8 @@ class String(Value):
         super().__init__()
         self.value = value
 
-    def concat_to(self, other):
-        return String(self.value + str(other.value)).set_context(self.context), None
+    def added_to(self, other):
+        return String(str(self.value) + str(other.value)).set_context(self.context), None
 
     def copy(self):
         copy = Number(self.value)
@@ -1157,7 +1182,6 @@ class Interpreter:
         var_name = node.var_name_tok.value
         data_type = node.data_type.value
         node_dtype = node.value_node
-        print(node_dtype)
 
         if node.value_node == None:
             if data_type == 'INT':
@@ -1188,7 +1212,6 @@ class Interpreter:
                 ))
 
         elif data_type == 'CHAR':
-            print(value)
             if not isinstance(value.value, str) or 1 < len(value.value):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
@@ -1203,7 +1226,6 @@ class Interpreter:
         var_name = node.var_name_tok.value
         value = res.register(self.visit(node.node_value, context))
         data_type = context.symbol_table.get(var_name)[1]
-        print(data_type)
 
         if res.error: return res
 
@@ -1222,7 +1244,6 @@ class Interpreter:
                 ))
 
         elif data_type == 'CHAR':
-            print(value)
             if not isinstance(value.value, str) or 1 < len(value.value):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
@@ -1231,6 +1252,15 @@ class Interpreter:
 
         context.symbol_table.set(var_name, value, data_type)
         return res.success(value)
+
+    def visit_PrintStatement(self, node, context):
+        res = RTResult()
+        func_name = node.func
+        expr = res.register(self.visit(node.expr.node, context))
+
+        if res.error: return res
+        print(expr)
+        return res.success(expr)
 
     def visit_BinOpNode(self, node, context):
         res = RTResult()
@@ -1331,7 +1361,9 @@ def run(fn, text):
                 if n.error: return None, ast.error
                 nodes.append(n.node)
 
-    # return nodes, None
+    for i in nodes:
+        print(i)
+    return nodes, None
 
     # Run program
     interpreter = Interpreter()
