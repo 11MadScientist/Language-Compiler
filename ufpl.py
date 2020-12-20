@@ -701,21 +701,28 @@ class Parser:
     def expr(self):
         res = ParseResult()
         if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'OUTPUT':
-            func = self.current_tok
-            res.register_advancement()
-            self.advance()
-            if self.current_tok.type != TT_COL:
-                return res.failure(InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end, "Expected ':'"))
-            res.register_advancement()
-            self.advance()
-            expr = self.expr()
-            return res.success(PrintStatement(func, expr))
+            if isstart == False:
+                return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
+                                                      self.current_tok.pos_end,
+                                                      "Cannot use function outside start keyword"))
+            else:
+                func = self.current_tok
+                res.register_advancement()
+                self.advance()
+                if self.current_tok.type != TT_COL:
+                    return res.failure(
+                        InvalidSyntaxError(self.current_tok.pos_start, self.current_tok.pos_end, "Expected ':'"))
+                res.register_advancement()
+                self.advance()
+                expr = self.expr()
+                return res.success(PrintStatement(func, expr))
 
         elif self.current_tok.type == TT_IDENTIFIER and self.tok_idx == 0 and isstart == False:
             return res.failure(InvalidSyntaxError(
                 self.current_tok.pos_start, self.current_tok.pos_end,
                 "Invalid variable position"
             ))
+
         elif self.current_tok.type == TT_IDENTIFIER and self.tok_idx == 0 and isstart == True:
             name = self.current_tok
             res.register_advancement()
@@ -747,71 +754,54 @@ class Parser:
                 ))
 
             var_name = []
+            value = []
+            datatype = ''
             batch = list()
+
             while self.current_tok.type == TT_IDENTIFIER:
                 var_name.append(self.current_tok)
                 res.register_advancement()
                 self.advance()
 
-            if self.current_tok.type != TT_EQ:
-                if self.current_tok.type == TT_KEYWORD:
-                    if self.current_tok.value == 'AS':
-                        res.register_advancement()
-                        self.advance()
-                        if self.current_tok.type == TT_KEYWORD:
-                            data_types = ["INT", "CHAR", "BOOL"]
-                            if self.current_tok.value in data_types:
-                                datatype = self.current_tok
-                                res.register_advancement()
-                                self.advance()
-                                for i in var_name:
-                                    g = ParseResult().success(VarAssignNode(i, None, datatype))
-                                    batch.append(g)
-                                return batch
-                        else:
-                            return res.failure(InvalidSyntaxError(
-                                self.current_tok.pos_start, self.current_tok.pos_end,
-                                "Expected KEYWORD 'INT', 'BOOL', OR 'CHAR'"
-                            ))
-                    else:
-                        return res.failure(InvalidSyntaxError(
-                            self.current_tok.pos_start, self.current_tok.pos_end,
-                            "Expected KEYWORD 'AS'"
-                        ))
-                else:
-                    return res.failure(InvalidSyntaxError(
-                        self.current_tok.pos_start, self.current_tok.pos_end,
-                        "Expected KEYWORD"
-                    ))
+                if self.current_tok.type != TT_EQ:
+                    value.append(None)
+                    continue
+                res.register_advancement()
+                self.advance()
+                if self.current_tok.type not in [TT_INT, TT_CHAR, TT_STRING]:
+                    return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
+                                                          self.current_tok.pos_end,
+                                                          "Expected value of INT, CHAR, BOOLEAN"))
+                expr = res.register(self.expr())
+                if res.error:
+                    return res
+                value.append(expr)
+
+            if self.current_tok.type != TT_KEYWORD or self.current_tok.value != 'AS':
+                return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
+                                                      self.current_tok.pos_end,
+                                                      "Expected Keyword 'AS'"))
 
             res.register_advancement()
             self.advance()
-            expr = res.register(self.expr())
-            if res.error: return res
-
-            if self.current_tok.type == TT_KEYWORD and self.current_tok.value == 'AS':
-                res.register_advancement()
-                self.advance()
-                data_types = ["INT", "CHAR", "BOOL"]
-                if self.current_tok.value in data_types:
-                    datatype = self.current_tok
-                    res.register_advancement()
-                    self.advance()
-                else:
-                    return res.failure(InvalidSyntaxError(
-                        self.current_tok.pos_start, self.current_tok.pos_end,
-                        "Expected KEYWORD 'INT', 'BOOL', OR 'CHAR'"))
-            else:
-                if self.current_tok.type == 'CHAR':
-                    return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
-                                                          self.current_tok.pos_end,
-                                                          "'' only takes 1 symbol"))
+            data_types = ["INT", "CHAR", "BOOL"]
+            if self.current_tok.value not in data_types:
                 return res.failure(InvalidSyntaxError(self.current_tok.pos_start,
                                                       self.current_tok.pos_end,
-                                                      "Expected KEYWORD 'AS'"))
+                                                      "Expected datatype"))
+            datatype = self.current_tok
+            res.register_advancement()
+            self.advance()
+
+            count = 0
             for i in var_name:
-                batch.append(ParseResult().success(VarAssignNode(i, expr, datatype)))
+                batch.append(ParseResult().success(VarAssignNode(i, value[count], datatype)))
+                count += 1
             return batch
+
+
+
+
 
         node = res.register(self.bin_op(self.comp_expr, ((TT_KEYWORD, 'AND'), (TT_KEYWORD, 'OR'))))
 
@@ -1224,10 +1214,11 @@ class Interpreter:
                     value.pos_start, value.pos_end,
                     "Invalid datatype: needs <TRUE or FALSE>"
                 ))
-            if int(value.value) == 0:
-                value.value = "FALSE"
-            elif int(value.value) == 1:
-                value.value = "TRUE"
+            if isinstance(value.value, int):
+                if int(value.value) == 0:
+                    value.value = "FALSE"
+                elif int(value.value) == 1:
+                    value.value = "TRUE"
 
         elif data_type == 'CHAR':
             if not isinstance(value.value, str) or 1 < len(value.value):
@@ -1255,17 +1246,16 @@ class Interpreter:
                 ))
 
         elif data_type == 'BOOL':
-            print("bool value: " + str(value.value))
             if value.value not in ("TRUE", "FALSE", 0, 1):
                 res.failure(InvalidInstantiationError(
                     value.pos_start, value.pos_end,
                     "Invalid datatype: needs <TRUE or FALSE>"
                 ))
-            if int(value.value) == 0:
-                value.value = "FALSE"
-            elif int(value.value) == 1:
-                print("high")
-                value.value = "TRUE"
+            if isinstance(value.value, int):
+                if int(value.value) == 0:
+                    value.value = "FALSE"
+                elif int(value.value) == 1:
+                    value.value = "TRUE"
 
         elif data_type == 'CHAR':
             if not isinstance(value.value, str) or 1 < len(value.value):
